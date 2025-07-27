@@ -1,0 +1,50 @@
+name: $(BuildID)
+
+trigger: none
+
+variables:
+  resourceGroup: 'rg-webapi-demo'
+  functionAppName: 'Solirius_App-demo'
+  AzureServiceConnection: 'ADO-TestApp'
+
+stages:
+- stage: Deploy
+  jobs:
+  - job: DeployInfraAndCode
+    pool:
+      vmImage: 'ubuntu-latest'
+
+    steps:
+    # 1. Download the ZIP artifact produced by build.yml
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        buildType: 'current'
+        artifactName: 'webapi'
+        targetPath: '$(Pipeline.Workspace)/artifact'
+
+    # 2. Deploy the Bicep template
+    - task: AzureCLI@2
+      displayName: 'Deploy Bicep'
+      inputs:
+        azureSubscription: '$(AzureServiceConnection)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          az deployment group create \
+            --resource-group $(resourceGroup) \
+            --template-file functionApp/infrastructure.bicep \
+            --parameters @functionApp/main.bicepparam \
+                         functionAppName=$(functionAppName) \
+                         sqlAdminPassword=$(SqlAdminPassword)
+# sqlAdminPassword will be set as a secret variable in the pipeline
+              
+
+    # 3. Deploy code to the Function App (I am opting for a function app over a web app)
+    - task: AzureFunctionApp@2        
+      displayName: 'Deploy ZIP to Function App'
+      inputs:
+        azureSubscription: '$(AzureServiceConnection)'
+        appType: 'functionApp'  
+        appName: '$(functionAppName)'
+        package: '$(Pipeline.Workspace)/artifact/**/*.zip'
+
